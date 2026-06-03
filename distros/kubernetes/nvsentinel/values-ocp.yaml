@@ -1,0 +1,12 @@
+# OpenShift-specific values override
+# Use with: helm install ... --values values-ocp.yaml
+
+global:
+  openshift:
+    enabled: true
+  dcgm:
+    service:
+      endpoint: "nvidia-dcgm.nvidia-gpu-operator.svc"
+
+openshift:
+  enabled: true

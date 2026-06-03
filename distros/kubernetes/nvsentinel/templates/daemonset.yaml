@@ -88,6 +88,10 @@ spec:
             capabilities:
               drop:
               - ALL
+            {{- if .Values.openshift.enabled }}
+            seLinuxOptions:
+              type: spc_t
+            {{- end }}
           ports:
             - name: metrics
               containerPort: {{ .Values.global.metricsPort }}

@@ -35,14 +35,29 @@ dependencies:
 - name: janitor
   repository: ""
   version: 0.1.0
+- name: janitor-provider
+  repository: ""
+  version: 0.1.0
 - name: metadata-collector
   repository: ""
   version: 0.1.0
 - name: kubernetes-object-monitor
   repository: ""
   version: 0.1.0
+- name: event-exporter
+  repository: ""
+  version: 0.1.0
 - name: preflight
   repository: ""
   version: 0.1.0
-digest: sha256:9f6ec426cf34f29407b4f8febe6cd89ddfce8f39a08c5f07e4a78c716afe5de1
-generated: "2026-01-29T15:19:46.818345818+05:30"
+- name: k8sdatastore-crds
+  repository: ""
+  version: 0.1.0
+- name: slurm-drain-monitor
+  repository: ""
+  version: 0.1.0
+- name: nic-health-monitor
+  repository: ""
+  version: 0.1.0
+digest: sha256:edd4816901aa9e8ce323757b7d2d7dbfef2a0cfdce42ec76a0e93948f8f9ed49
+generated: "2026-06-03T14:35:55.438929707+03:00"

@@ -63,6 +63,10 @@ spec:
             - {{ .Values.processingStrategy | quote }}
           securityContext:
             runAsUser: 0
+            {{- if ((.Values.global).openshift).enabled }}
+            seLinuxOptions:
+              type: spc_t
+            {{- end }}
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default ((.Values.global).image).tag | default .Chart.AppVersion }}-dcgm-3.x"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           resources:

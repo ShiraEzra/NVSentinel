@@ -14,6 +14,8 @@
 
 global:
   dryRun: false
+  openshift:
+    enabled: false
   image:
     tag: "main"
   initContainerImage:
@@ -181,6 +183,10 @@ global:
     enabled: false
   nicHealthMonitor:
     enabled: false
+
+# OpenShift-specific configuration
+openshift:
+  enabled: false
 
 # Network policy configuration
 # The metrics-access network policy restricts ingress to metrics ports only.
