@@ -1,0 +1,33 @@
+# OpenShift remediation add-on — enables fault-quarantine + node-drainer
+# Use with: helm install ... --values values-ocp.yaml --values values-ocp-remediation.yaml
+#
+# Prerequisites (one-time cluster setup):
+#   1. Install Percona CRDs:
+#      oc apply --server-side -f distros/kubernetes/nvsentinel/charts/mongodb-store/charts/psmdb-operator/crds/crd.yaml
+#   2. Apply Percona registry aliases (triggers node reboot):
+#      oc apply -f distros/openshift/percona-registry-aliases.yaml
+
+global:
+  mongodbStore:
+    enabled: true
+  faultQuarantine:
+    enabled: true
+  nodeDrainer:
+    enabled: true
+
+mongodb-store:
+  useBitnami: false
+  usePerconaOperator: true
+  psmdb-operator:
+    image:
+      repository: docker.io/percona/percona-server-mongodb-operator
+  psmdb-db:
+    platform: openshift
+    image:
+      repository: docker.io/percona/percona-server-mongodb
+    backup:
+      image:
+        repository: docker.io/percona/percona-backup-mongodb
+    logcollector:
+      image:
+        repository: docker.io/percona/fluentbit

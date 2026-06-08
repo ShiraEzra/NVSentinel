@@ -1,0 +1,21 @@
+# Percona registry aliases for OpenShift
+# The Percona MongoDB Operator uses Docker Hub short image names (e.g. percona/mongodb_exporter)
+# which OpenShift rejects. This MachineConfig adds aliases so OCP resolves them to docker.io.
+# Apply once per cluster: oc apply -f percona-registry-aliases.yaml
+# Note: this triggers a node reboot.
+apiVersion: machineconfiguration.openshift.io/v1
+kind: MachineConfig
+metadata:
+  labels:
+    machineconfiguration.openshift.io/role: master
+  name: 99-percona-registry-aliases
+spec:
+  config:
+    ignition:
+      version: 3.2.0
+    storage:
+      files:
+        - path: /etc/containers/registries.conf.d/003-percona-aliases.conf
+          mode: 0644
+          contents:
+            source: data:text/plain;charset=utf-8;base64,W2FsaWFzZXNdCiAgInBlcmNvbmEvbW9uZ29kYl9leHBvcnRlciIgPSAiZG9ja2VyLmlvL3BlcmNvbmEvbW9uZ29kYl9leHBvcnRlciIKICAicGVyY29uYS9wZXJjb25hLXNlcnZlci1tb25nb2RiIiA9ICJkb2NrZXIuaW8vcGVyY29uYS9wZXJjb25hLXNlcnZlci1tb25nb2RiIgogICJwZXJjb25hL3BlcmNvbmEtc2VydmVyLW1vbmdvZGItb3BlcmF0b3IiID0gImRvY2tlci5pby9wZXJjb25hL3BlcmNvbmEtc2VydmVyLW1vbmdvZGItb3BlcmF0b3IiCiAgInBlcmNvbmEvcGVyY29uYS1iYWNrdXAtbW9uZ29kYiIgPSAiZG9ja2VyLmlvL3BlcmNvbmEvcGVyY29uYS1iYWNrdXAtbW9uZ29kYiIKICAicGVyY29uYS9mbHVlbnRiaXQiID0gImRvY2tlci5pby9wZXJjb25hL2ZsdWVudGJpdCIKICAicGVyY29uYS9wbW0tY2xpZW50IiA9ICJkb2NrZXIuaW8vcGVyY29uYS9wbW0tY2xpZW50Igo=

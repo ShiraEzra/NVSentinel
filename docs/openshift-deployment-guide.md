@@ -1,61 +1,32 @@
 # NVSentinel on OpenShift — Deployment Guide
 
-This fork adds OpenShift support to NVIDIA NVSentinel. On vanilla Kubernetes the upstream chart works out of the box. On OpenShift, three things break — this fork fixes all three via a single `values-ocp.yaml` override file and minimal template changes.
+This fork adapts NVIDIA NVSentinel for OpenShift. The upstream chart works out of the box on vanilla Kubernetes — on OpenShift, several platform-specific adaptations are required. All fixes are codified in the chart and controlled via values override files.
 
-## What We Changed (and Why)
+NVSentinel supports two deployment modes:
 
-### 1. SCC — Pods blocked from running as root
-
-OpenShift's default `restricted-v2` SCC prevents pods from running as `runAsUser: 0` or using `hostPath` volumes. NVSentinel's DaemonSets need both for direct GPU hardware access.
-
-**Fix:** Added `templates/openshift-scc.yaml` — a ClusterRoleBinding that grants the built-in `privileged` SCC to all service accounts in the namespace. Only created when `openshift.enabled: true`.
-
-### 2. SELinux — Unix socket permission denied
-
-CoreOS SELinux blocks creation of the shared Unix socket `/var/run/nvsentinel.sock`, causing platform-connectors to crash with `bind: permission denied`. The gpu-health-monitor also can't read the socket.
-
-**Fix:** Added `seLinuxOptions: {type: spc_t}` to the container security context of platform-connectors and gpu-health-monitor. Conditional on `openshift.enabled`.
-
-### 3. DCGM endpoint — Wrong namespace
-
-The chart defaults to `nvidia-dcgm.gpu-operator.svc:5555`, but on OpenShift the GPU Operator installs into `nvidia-gpu-operator` namespace.
-
-**Fix:** Overridden in `values-ocp.yaml` — no template changes needed, just a values override.
-
-### Changed Files
-
-All paths relative to `distros/kubernetes/nvsentinel/`:
-
-| File | Change |
-|------|--------|
-| `templates/openshift-scc.yaml` | **New** — ClusterRoleBinding for privileged SCC |
-| `values-ocp.yaml` | **New** — OpenShift values override (DCGM endpoint, openshift flag) |
-| `values.yaml` | Added `openshift.enabled: false` and `global.openshift.enabled: false` defaults |
-| `templates/daemonset.yaml` | Added conditional `seLinuxOptions: {type: spc_t}` |
-| `charts/gpu-health-monitor/templates/daemonset-dcgm-4.x.yaml` | Added conditional `seLinuxOptions: {type: spc_t}` |
-| `charts/gpu-health-monitor/templates/daemonset-dcgm-3.x.yaml` | Added conditional `seLinuxOptions: {type: spc_t}` |
-
-All fixes are controlled by a single flag: `openshift.enabled: true`. When set to `false` (default), the chart behaves identically to upstream — no OpenShift-specific resources are created.
+- **Monitoring only** (default) — monitors GPU health via DCGM and reports status as Kubernetes Node Conditions
+- **Full remediation** — adds fault-quarantine (automatic node cordon) and node-drainer (workload eviction) capabilities, backed by a MongoDB datastore
 
 ---
 
 ## Prerequisites
 
+### Required for all deployments
+
 1. **OpenShift cluster** with GPU-equipped nodes
 
-2. **Node Feature Discovery (NFD) Operator** — installed via OperatorHub. NFD detects hardware features (such as NVIDIA PCI cards) and labels nodes accordingly. The GPU Operator depends on it.
+2. **Node Feature Discovery (NFD) Operator** — install via OperatorHub. Detects GPU hardware and labels nodes.
    ```bash
    oc get pods -n openshift-nfd
    ```
 
-3. **NVIDIA GPU Operator** — installed via OperatorHub. Manages GPU drivers, device plugin, and DCGM. Requires a `ClusterPolicy` custom resource to configure driver deployment.
+3. **NVIDIA GPU Operator** — install via OperatorHub. Manages GPU drivers, device plugin, and DCGM.
    ```bash
    oc get pods -n nvidia-gpu-operator
    oc get clusterpolicy
    ```
-   All pods should be `Running` or `Completed`.
 
-4. **cert-manager** — required by NVSentinel for internal TLS:
+4. **cert-manager** — required for NVSentinel internal TLS:
    ```bash
    helm repo add jetstack https://charts.jetstack.io --force-update
    helm upgrade --install cert-manager jetstack/cert-manager \
@@ -63,30 +34,51 @@ All fixes are controlled by a single flag: `openshift.enabled: true`. When set t
      --version v1.19.1 --set installCRDs=true --wait
    ```
 
-5. **Helm 3.0+** and **oc CLI** authenticated to the cluster:
+5. **Helm 3.0+** and **oc CLI** authenticated to the cluster
+
+### Additional prerequisites for full remediation mode
+
+6. **Percona MongoDB CRDs** — must be installed before Helm can create the MongoDB cluster:
    ```bash
-   oc whoami
-   oc get nodes
+   oc apply --server-side \
+     -f distros/kubernetes/nvsentinel/charts/mongodb-store/charts/psmdb-operator/crds/crd.yaml
    ```
+
+7. **Percona registry aliases** — the Percona operator uses Docker Hub short image names that OpenShift rejects. This one-time MachineConfig adds the required aliases (triggers a node reboot, ~5-10 minutes):
+   ```bash
+   oc apply -f distros/openshift/percona-registry-aliases.yaml
+
+   # Wait for the node to finish updating:
+   oc get machineconfigpool master -w
+   # Proceed when UPDATED=True, UPDATING=False
+   ```
+
+---
 
 ## Installation
 
+### Step 1 — Clone and prepare
+
 ```bash
-# 1. Clone and checkout the OCP branch
 git clone git@github.com:ShiraEzra/nvsentinel.git
 cd nvsentinel
 git checkout ocp-deployment
 
-# 2. Build chart dependencies (one-time, downloads 20 subcharts)
+# Build chart dependencies (one-time)
 helm dependency update distros/kubernetes/nvsentinel/
+```
 
-# 3. Install using the local chart with OpenShift values
-#    The --values flag passes values-ocp.yaml, which:
-#    - Sets openshift.enabled: true (activates SCC + SELinux fixes)
-#    - Points DCGM endpoint to nvidia-gpu-operator namespace
-#    The --set flag pins the image tag to the desired release version
+### Step 2 — Deploy
+
+Set the desired NVSentinel version:
+
+```bash
 NVSENTINEL_VERSION=v1.8.0
+```
 
+**Monitoring only:**
+
+```bash
 helm upgrade --install nvsentinel \
   ./distros/kubernetes/nvsentinel/ \
   --namespace nvsentinel-ocp \
@@ -96,19 +88,50 @@ helm upgrade --install nvsentinel \
   --timeout 15m
 ```
 
-## Verify
+**Full remediation (monitoring + fault-quarantine + node-drainer):**
+
+```bash
+helm upgrade --install nvsentinel \
+  ./distros/kubernetes/nvsentinel/ \
+  --namespace nvsentinel-ocp \
+  --create-namespace \
+  --values ./distros/kubernetes/nvsentinel/values-ocp.yaml \
+  --values ./distros/kubernetes/nvsentinel/values-ocp-remediation.yaml \
+  --set global.image.tag="$NVSENTINEL_VERSION" \
+  --timeout 15m
+```
+
+**Full remediation on Single Node OpenShift (SNO):**
+
+Add the following flag to allow all MongoDB replicas on the same node:
+
+```bash
+  --set mongodb-store.psmdb-db.replsets.rs0.affinity.antiAffinityTopologyKey=none
+```
+
+---
+
+## Verification
+
+### Monitoring mode
 
 ```bash
 # All pods should be Running with 0 restarts
 oc get pods -n nvsentinel-ocp
 
-# Check DCGM connectivity — should see "Successfully created DCGM handle"
-oc logs ds/gpu-health-monitor-dcgm-4.x -n nvsentinel-ocp --tail=15
+# Expected pods:
+#   gpu-health-monitor-dcgm-4.x-xxxxx   1/1   Running
+#   labeler-xxxxx                        1/1   Running
+#   platform-connectors-xxxxx            1/1   Running
 
-# Check health events are flowing
+# Verify DCGM connectivity
+oc logs ds/gpu-health-monitor-dcgm-4.x -n nvsentinel-ocp --tail=15
+# Look for: "Successfully created DCGM handle"
+
+# Verify health events are flowing
 oc logs ds/platform-connectors -n nvsentinel-ocp --tail=15
 
-# Check GPU health conditions on the node
+# Verify GPU health conditions on the node
 oc get node <node-name> \
   -o jsonpath='{range .status.conditions[*]}{.type}{"\t"}{.status}{"\t"}{.message}{"\n"}{end}' \
   | grep -i gpu
@@ -124,3 +147,57 @@ GpuMemWatch                 False   No Health Failures
 GpuSmWatch                  False   No Health Failures
 GpuAllWatch                 False   No Health Failures
 ```
+
+### Full remediation mode (additional checks)
+
+```bash
+# Additional expected pods:
+#   fault-quarantine-xxxxx               1/1   Running
+#   node-drainer-xxxxx                   1/1   Running
+#   mongodb-rs0-{0,1,2}                  2/2   Running
+#   nvsentinel-psmdb-operator-xxxxx      1/1   Running
+#   create-mongodb-database-xxxxx        0/1   Completed
+
+# Verify fault-quarantine is watching for GPU fault events
+oc logs deployment/fault-quarantine -n nvsentinel-ocp --tail=10
+# Look for: "Starting event watcher"
+
+# Verify node-drainer is ready
+oc logs deployment/node-drainer -n nvsentinel-ocp --tail=10
+# Look for: "All components started successfully"
+```
+
+---
+
+## What Was Changed From Upstream
+
+All changes are controlled by `openshift.enabled: true`, which is set inside `values-ocp.yaml`. By passing `--values values-ocp.yaml` at install time, all OpenShift fixes are activated. Without this values file, the chart behaves identically to upstream — for vanilla Kubernetes, use the standard upstream install:
+
+```bash
+helm install nvsentinel oci://ghcr.io/nvidia/nvsentinel \
+  --version "$NVSENTINEL_VERSION" \
+  --namespace nvsentinel \
+  --create-namespace
+```
+
+| # | Issue | Fix | Files |
+|---|-------|-----|-------|
+| 1 | SCC blocks root pods | ClusterRoleBinding for built-in `privileged` SCC | `templates/openshift-scc.yaml` |
+| 2 | SELinux blocks Unix socket | `seLinuxOptions: {type: spc_t}` on affected containers | `templates/daemonset.yaml`, `charts/gpu-health-monitor/templates/daemonset-dcgm-{3,4}.x.yaml` |
+| 3 | DCGM endpoint wrong namespace | Override `global.dcgm.service.endpoint` | `values-ocp.yaml` |
+| 4 | Bitnami MongoDB init bug on OCP | Switch to Percona MongoDB Operator + full image paths | `values-ocp-remediation.yaml`, `distros/openshift/percona-registry-aliases.yaml` |
+
+All paths relative to `distros/kubernetes/nvsentinel/`.
+
+### Values override files
+
+| File | Purpose |
+|------|---------|
+| `values-ocp.yaml` | Core OpenShift fixes — SCC, SELinux, DCGM endpoint (monitoring only) |
+| `values-ocp-remediation.yaml` | Enables MongoDB + fault-quarantine + node-drainer (add-on) |
+
+### Cluster prerequisites
+
+| File | Purpose | When needed |
+|------|---------|-------------|
+| `distros/openshift/percona-registry-aliases.yaml` | MachineConfig mapping Percona short image names to docker.io | Full remediation mode only |

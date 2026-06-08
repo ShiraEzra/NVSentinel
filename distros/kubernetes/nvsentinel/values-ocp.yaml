@@ -1,5 +1,11 @@
-# OpenShift-specific values override
+# OpenShift-specific values override — monitoring only
 # Use with: helm install ... --values values-ocp.yaml
+#
+# To enable fault remediation (cordon/drain), also pass:
+#   --values values-ocp-remediation.yaml
+#
+# For Single Node OpenShift (SNO), also add:
+#   --set mongodb-store.psmdb-db.replsets.rs0.affinity.antiAffinityTopologyKey=none
 
 global:
   openshift:
