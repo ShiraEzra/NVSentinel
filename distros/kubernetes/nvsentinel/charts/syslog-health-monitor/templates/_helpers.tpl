@@ -108,6 +108,10 @@ spec:
         - name: syslog-health-monitor
           securityContext:
             runAsUser: 0
+            {{- if $root.Values.global.openshift.enabled }}
+            seLinuxOptions:
+              type: spc_t
+            {{- end }}
             capabilities:
               add: ["SYSLOG", "SYS_ADMIN"]
           image: "{{ $root.Values.image.repository }}:{{ $root.Values.image.tag | default (($root.Values.global).image).tag | default $root.Chart.AppVersion }}"

@@ -16,3 +16,6 @@ global:
 
 openshift:
   enabled: true
+
+labeler:
+  assumeDriverInstalled: true
