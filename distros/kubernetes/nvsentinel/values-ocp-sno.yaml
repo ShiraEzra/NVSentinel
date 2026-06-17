@@ -1,0 +1,43 @@
+# OpenShift SNO (Single Node OpenShift) overrides
+# Use with: helm install ... --values values-ocp.yaml --values values-ocp-remediation.yaml --values values-ocp-sno.yaml
+#
+# This file adjusts settings that don't work on a single-node cluster:
+#   - Disables MongoDB anti-affinity (allows all replicas on the same node)
+#   - Disables circuit breaker (1 node = 100% always exceeds threshold)
+#   - Excludes IMEX NVLink errors from cordon rules (IMEX is for multi-node NVLink fabric, not present on SNO)
+
+mongodb-store:
+  psmdb-db:
+    replsets:
+      rs0:
+        affinity:
+          antiAffinityTopologyKey: "none"
+
+fault-quarantine:
+  circuitBreaker:
+    enabled: false
+  ruleSets:
+    - enabled: true
+      version: "1"
+      name: "GPU fatal error ruleset"
+      match:
+        all:
+          - kind: "HealthEvent"
+            expression: "event.agent == 'gpu-health-monitor' && event.componentClass == 'GPU' && event.isFatal == true && !event.errorCode.exists(e, e == 'DCGM_FR_IMEX_UNHEALTHY') && !event.errorCode.exists(e, e == 'DCGM_FR_UNKNOWN')"
+          - kind: "Node"
+            expression: |
+              !('k8saas.nvidia.com/ManagedByNVSentinel' in node.metadata.labels && node.metadata.labels['k8saas.nvidia.com/ManagedByNVSentinel'] == "false")
+      cordon:
+        shouldCordon: true
+    - enabled: true
+      version: "1"
+      name: "Syslog fatal error ruleset"
+      match:
+        all:
+          - kind: "HealthEvent"
+            expression: "event.agent == 'syslog-health-monitor' && (event.componentClass == 'GPU' || event.componentClass == 'NIC') && event.isFatal == true"
+          - kind: "Node"
+            expression: |
+              !('k8saas.nvidia.com/ManagedByNVSentinel' in node.metadata.labels && node.metadata.labels['k8saas.nvidia.com/ManagedByNVSentinel'] == "false")
+      cordon:
+        shouldCordon: true

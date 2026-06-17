@@ -5,7 +5,7 @@
 #   --values values-ocp-remediation.yaml
 #
 # For Single Node OpenShift (SNO), also add:
-#   --set mongodb-store.psmdb-db.replsets.rs0.affinity.antiAffinityTopologyKey=none
+#   --values values-ocp-sno.yaml
 
 global:
   openshift:
